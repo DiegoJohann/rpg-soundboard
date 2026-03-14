@@ -64,13 +64,14 @@ Lista de todos os sons ativos com controles:
 ```
 rpg-soundboard/
 │
-├── main.py
-├── gui.py
-├── sound_manager.py
-├── widgets.py
-├── config.py
-├── utils.py
-└── README.md
+├── src/
+    ├── main.py
+    ├── gui.py
+    ├── sound_manager.py
+    ├── widgets.py
+    ├── config.py
+    ├── utils.py
+│ README.md
 ```
 
 ### main.py
