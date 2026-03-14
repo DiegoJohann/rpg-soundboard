@@ -182,7 +182,7 @@ Além disso é necessário ter o **VLC instalado no sistema**, pois o `python-vl
 Clone o repositório:
 
 ```
-git clone https://github.com/seu-usuario/rpg-soundboard.git
+git clone https://github.com/DiegoJohann/rpg-soundboard
 cd rpg-soundboard
 ```
 
