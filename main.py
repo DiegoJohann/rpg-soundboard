@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 from PyQt6 import QtWidgets
-from gui import SoundboardWindow
+from rpg_soundboard.gui import SoundboardWindow
 
 
 def main():

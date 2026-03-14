@@ -1,10 +1,10 @@
 import os
 from PyQt6 import QtWidgets, QtCore, QtGui
 
-from config import load_config, save_config
-from utils import is_audio_file
-from widgets import PlayerItemWidget
-from sound_manager import SoundManager
+from .config import load_config, save_config
+from .utils import is_audio_file
+from .widgets import PlayerItemWidget
+from .sound_manager import SoundManager
 
 try:
     import vlc

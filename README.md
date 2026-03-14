@@ -63,15 +63,18 @@ Lista de todos os sons ativos com controles:
 
 ```
 rpg-soundboard/
-│
-├── src/
-    ├── main.py
+├── main.py
+├── .gitignore
+├── .python-version
+├── pyproject.toml
+├── uv.lock
+└── rpg-soundboard/
     ├── gui.py
     ├── sound_manager.py
     ├── widgets.py
     ├── config.py
     ├── utils.py
-│ README.md
+    └── ...
 ```
 
 ### main.py
@@ -177,7 +180,16 @@ Além disso é necessário ter o **VLC instalado no sistema**, pois o `python-vl
 
 ---
 
-# 🖥 Instalação
+# 📦 Gerenciamento de Dependências (recomendado: uv)
+
+O projeto foi preparado para uso com uv (gestor moderno de ambientes/dependências):
+* usa `pyproject.toml`
+* gera/usa `uv.lock` para instalações reproduzíveis
+* cria `.venv/` automaticamente quando necessário
+
+---
+
+# 🖥 Instalação com .venv
 
 Clone o repositório:
 
@@ -203,6 +215,34 @@ Execute:
 
 ```
 python main.py
+```
+
+---
+
+# 🖥 Instalação com uv
+
+Instale o uv (Linux/macOS — script oficial):
+
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# então recarregue o shell: source ~/.bashrc ou equivalente
+```
+
+Entre na pasta do projeto:
+
+```
+cd rpg-soundboard
+```
+
+Sincronize dependências (cria `.venv` e instala tudo conforme uv.lock):
+```
+uv sync
+```
+
+Rode a aplicação:
+
+```
+uv run python main.py
 ```
 
 ---
