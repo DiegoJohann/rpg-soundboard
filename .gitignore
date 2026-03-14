@@ -1,0 +1,13 @@
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+pycache/
+*.py[cod]
