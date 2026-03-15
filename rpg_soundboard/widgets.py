@@ -36,7 +36,7 @@ class PlayerItemWidget(QtWidgets.QWidget):
         self.stop_btn.clicked.connect(self.stop)
 
         self.vol_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.vol_slider.setRange(0, 100)
+        self.vol_slider.setRange(0, 200)
         self.vol_slider.setFixedWidth(120)
 
         try:

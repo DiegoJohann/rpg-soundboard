@@ -83,7 +83,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
 
         vol_label = QtWidgets.QLabel("Volume padrão:")
         self.default_vol_spin = QtWidgets.QSpinBox()
-        self.default_vol_spin.setRange(0, 100)
+        self.default_vol_spin.setRange(0, 200)
         self.default_vol_spin.setValue(self.config.get("default_volume", 80))
         self.default_vol_spin.setSuffix("%")
         self.default_vol_spin.valueChanged.connect(self.save_settings)
