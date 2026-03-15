@@ -33,6 +33,11 @@ class SoundManager:
         self.default_volume_getter = default_volume_getter
         self.players_ativos: Dict[str, Dict] = {}
 
+        if vlc is None:
+            self.instancia = None
+        else:
+            self.instancia = vlc.Instance()
+
     def play_file(self, path: str, tipo: str):
         """
         Inicia a reprodução de um arquivo de áudio.
@@ -53,7 +58,7 @@ class SoundManager:
         if vlc is None:
             raise RuntimeError("python-vlc (libVLC) não encontrado")
 
-        instancia = vlc.Instance()
+        instancia = self.instancia
 
         if tipo == "trilha":
             media = instancia.media_new(path, "input-repeat=-1")

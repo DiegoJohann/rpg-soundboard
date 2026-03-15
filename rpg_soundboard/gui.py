@@ -12,6 +12,14 @@ except Exception:
     vlc = None
 
 
+def _list_stylesheet() -> str:
+    """Retorna a stylesheet usada nas listas para melhor legibilidade."""
+    return (
+        "QListWidget { font-size: 10pt; }"
+        "QListWidget::item { padding: 4px 6px; }"
+    )
+
+
 class SoundboardWindow(QtWidgets.QMainWindow):
     """
     Janela principal do RPG Soundboard.
@@ -59,13 +67,6 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         self.timer_limpeza.setInterval(1000)
         self.timer_limpeza.timeout.connect(self._cleanup_finished)
         self.timer_limpeza.start()
-
-    def _list_stylesheet(self) -> str:
-        """Retorna a stylesheet usada nas listas para melhor legibilidade."""
-        return (
-            "QListWidget { font-size: 10pt; }"
-            "QListWidget::item { padding: 4px 6px; }"
-        )
 
     # ---------------- UI ----------------
     def _build_ui(self):
@@ -125,7 +126,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
 
         self.lista_trilhas = QtWidgets.QListWidget()
         self.lista_trilhas.setSpacing(4)
-        self.lista_trilhas.setStyleSheet(self._list_stylesheet())
+        self.lista_trilhas.setStyleSheet(_list_stylesheet())
         self.lista_trilhas.itemDoubleClicked.connect(lambda it: self.play_from_item(it, "trilha"))
         layout_trilhas.addWidget(self.lista_trilhas)
 
@@ -143,7 +144,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
 
         self.lista_efeitos = QtWidgets.QListWidget()
         self.lista_efeitos.setSpacing(4)
-        self.lista_efeitos.setStyleSheet(self._list_stylesheet())
+        self.lista_efeitos.setStyleSheet(_list_stylesheet())
         self.lista_efeitos.itemDoubleClicked.connect(lambda it: self.play_from_item(it, "efeito"))
         layout_efeitos.addWidget(self.lista_efeitos)
 
@@ -154,12 +155,21 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         layout_listas.addWidget(self.grupo_trilhas)
         layout_listas.addWidget(self.grupo_efeitos)
 
+        # Painel de One-Shots / Quick triggers
+        grupo_quick = QtWidgets.QGroupBox("Painel Rápido")
+        layout_quick = QtWidgets.QHBoxLayout(grupo_quick)
+        self.quick_area = QtWidgets.QWidget()
+        self.quick_layout = QtWidgets.QHBoxLayout(self.quick_area)
+        layout_quick.addWidget(self.quick_area)
+        self._reload_quick_panel()
+        layout.addWidget(grupo_quick)
+
         # Área inferior: Tocando agora
         grupo_tocando = QtWidgets.QGroupBox("Tocando agora")
         layout_tocando = QtWidgets.QVBoxLayout(grupo_tocando)
         self.lista_tocando = QtWidgets.QListWidget()
         self.lista_tocando.setSpacing(4)
-        self.lista_tocando.setStyleSheet(self._list_stylesheet())
+        self.lista_tocando.setStyleSheet(_list_stylesheet())
         layout_tocando.addWidget(self.lista_tocando)
         botao_parar_tudo = QtWidgets.QPushButton("Parar todas")
         botao_parar_tudo.clicked.connect(self.stop_all)
@@ -170,6 +180,12 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         # permitir limpar busca com ESC
         self.busca_trilhas.installEventFilter(self)
         self.busca_efeitos.installEventFilter(self)
+
+        # context menu para listas (favoritar)
+        self.lista_trilhas.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.lista_trilhas.customContextMenuRequested.connect(lambda pos: self._open_context_menu(self.lista_trilhas, pos))
+        self.lista_efeitos.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.lista_efeitos.customContextMenuRequested.connect(lambda pos: self._open_context_menu(self.lista_efeitos, pos))
 
     def _criar_campo_busca(self, placeholder: str) -> QtWidgets.QLineEdit:
         """
@@ -284,9 +300,13 @@ class SoundboardWindow(QtWidgets.QMainWindow):
 
         widget.clear()
         cont = 0
+        favs = set(self.config.get("favorites", []))
         for nome, caminho in mestre:
             if not q or q in nome.casefold():
-                item = QtWidgets.QListWidgetItem(nome)
+                display = nome
+                if caminho in favs:
+                    display = "★ " + display
+                item = QtWidgets.QListWidgetItem(display)
                 item.setData(QtCore.Qt.ItemDataRole.UserRole, caminho)
                 item.setSizeHint(QtCore.QSize(0, 28))
                 widget.addItem(item)
@@ -297,6 +317,48 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         else:
             self.grupo_efeitos.setTitle(f"Efeitos (momentâneos) — {cont}")
 
+    def _open_context_menu(self, widget: QtWidgets.QListWidget, pos):
+        item = widget.itemAt(pos)
+        if not item:
+            return
+
+        caminho = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        menu = QtWidgets.QMenu()
+        fav = "Desmarcar favorito" if caminho in self.config.get("favorites", []) else "Marcar favorito"
+        act_fav = menu.addAction(fav)
+        act_play = menu.addAction("Tocar")
+        act_show = menu.addAction("Mostrar no FS")
+        a = menu.exec(widget.mapToGlobal(pos))
+
+        if a == act_fav:
+            self._toggle_favorite(caminho)
+        elif a == act_play:
+            # descobrir tipo pela pasta
+            self.play_from_item(item, "trilha" if widget is self.lista_trilhas else "efeito")
+        elif a == act_show:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(caminho))
+
+    def _toggle_favorite(self, caminho: str):
+        favs = set(self.config.get("favorites", []))
+
+        if caminho in favs:
+            favs.remove(caminho)
+            self.statusBar().showMessage("Removido dos favoritos", 2500)
+        else:
+            if len(favs) >= 5:
+                self.statusBar().showMessage("Limite de 5 favoritos atingido.", 3000)
+                return
+
+            favs.add(caminho)
+            self.statusBar().showMessage("Adicionado aos favoritos", 2500)
+
+        self.config["favorites"] = list(favs)
+        save_config(self.config)
+
+        self.refresh_list("trilha")
+        self.refresh_list("efeito")
+        self._reload_quick_panel()
+
     # ----------------- reprodução e ligação UI -----------------
     def play_from_item(self, item: QtWidgets.QListWidgetItem, tipo: str):
         """
@@ -305,7 +367,9 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         """
         caminho = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not caminho or not os.path.isfile(caminho):
+            self.statusBar().showMessage("Arquivo inválido.", 3000)
             return
+
         try:
             uid, player = self.sound_manager.play_file(caminho, tipo)
         except RuntimeError as e:
@@ -313,7 +377,18 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             return
 
         nome_exibicao = f"{os.path.basename(caminho)}  [{tipo}]"
-        widget_faixa = PlayerItemWidget(nome_exibicao, player, on_stop_callback=self._on_widget_stop)
+        self._add_playing_widget(uid, player, nome_exibicao)
+
+    def _add_playing_widget(self, uid, player, nome_exibicao: str):
+        """
+        Adiciona à lista 'Tocando agora' o widget associado a um player ativo
+        e registra sua referência no mapa interno.
+        """
+        widget_faixa = PlayerItemWidget(
+            nome_exibicao,
+            player,
+            on_stop_callback=self._on_widget_stop,
+        )
         widget_faixa._uid = uid
 
         item_lista = QtWidgets.QListWidgetItem()
@@ -322,6 +397,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         self.lista_tocando.setItemWidget(item_lista, widget_faixa)
 
         self._map_tocando[uid] = {"list_item": item_lista, "widget": widget_faixa}
+        self.statusBar().showMessage(f"Tocando: {nome_exibicao}", 2500)
 
     def _on_widget_stop(self, widget):
         """
@@ -405,12 +481,30 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         ):
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
 
+    def _play_path_via_hotkey(self, path: str):
+        # tenta tocar diretamente (se arquivo não existir -> mensagem)
+        if not os.path.isfile(path):
+            self.statusBar().showMessage("Hotkey: arquivo não encontrado.", 3000)
+            return
+
+        # decidir tipo: se estiver na pasta trilhas -> trilha, else efeito
+        tipo = "trilha" if path.startswith(self.config.get("trilhas_dir", "")) else "efeito"
+
+        # criar um item temporário para reaproveitar lógica
+        nome_exibicao = f"{os.path.basename(path)}  [{tipo}]"
+        try:
+            uid, player = self.sound_manager.play_file(path, tipo)
+        except RuntimeError as e:
+            self.statusBar().showMessage(f"Erro ao tocar hotkey: {e}", 3000)
+            return
+
+        self._add_playing_widget(uid, player, nome_exibicao)
+        self.statusBar().showMessage(f"Tocando (hotkey): {os.path.basename(path)}", 2000)
+
     def _play_selected(self):
         """
         Toca o item atualmente selecionado, priorizando a lista com foco.
         """
-        atual = None
-        tipo = None
         if self.lista_trilhas.hasFocus():
             atual = self.lista_trilhas.currentItem()
             tipo = "trilha"
@@ -466,3 +560,31 @@ class SoundboardWindow(QtWidgets.QMainWindow):
                 self.lista_tocando.takeItem(linha)
             except Exception:
                 pass
+
+    # quick panel: mostra até 6 favoritos como botões
+    def _reload_quick_panel(self):
+        # limpar
+        for i in reversed(range(self.quick_layout.count())):
+            w = self.quick_layout.itemAt(i).widget()
+            if w:
+                w.setParent(None)
+        favs = list(self.config.get("favorites", []))
+
+        # criar botões + hotkeys
+        for i, caminho in enumerate(favs[:5]):
+            seq = f"Ctrl+{i + 1}"
+
+            shortcut = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
+            shortcut.activated.connect(lambda p=caminho: self._play_path_via_hotkey(p))
+
+            b = QtWidgets.QPushButton(f"{i + 1} - {os.path.basename(caminho)}")
+            b.setToolTip(f"{seq} → {caminho}")
+
+            b.clicked.connect(lambda _, path=caminho: self._play_path_via_hotkey(path))
+
+            self.quick_layout.addWidget(b)
+
+        # se vazio, instrução
+        if not favs:
+            lab = QtWidgets.QLabel("Marque favoritos (clique direito) para aparecer aqui.")
+            self.quick_layout.addWidget(lab)

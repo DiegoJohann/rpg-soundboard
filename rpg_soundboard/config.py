@@ -5,7 +5,24 @@ CONFIG_PATH = os.path.expanduser("~/.rpg_soundboard_config.json")
 
 
 def load_config():
-    default = {"trilhas_dir": "", "efeitos_dir": "", "default_volume": 80}
+    """
+        Estrutura do config resultante (exemplo):
+        {
+          "trilhas_dir": "",
+          "efeitos_dir": "",
+          "default_volume": 80,
+          "hotkeys": {
+             "Ctrl+1": "/caminho/critico.wav"
+          },
+          "favorites": ["/caminho/foo.mp3"]
+        }
+        """
+    default = {
+        "trilhas_dir": "",
+        "efeitos_dir": "",
+        "default_volume": 80,
+        "favorites": [],
+    }
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
