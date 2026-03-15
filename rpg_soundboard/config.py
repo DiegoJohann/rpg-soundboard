@@ -11,9 +11,6 @@ def load_config():
           "trilhas_dir": "",
           "efeitos_dir": "",
           "default_volume": 80,
-          "hotkeys": {
-             "Ctrl+1": "/caminho/critico.wav"
-          },
           "favorites": ["/caminho/foo.mp3"]
         }
         """
