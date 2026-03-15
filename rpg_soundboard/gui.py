@@ -11,7 +11,12 @@ try:
 except Exception:
     vlc = None
 
+
 class SoundboardWindow(QtWidgets.QMainWindow):
+    """
+    Main window for the RPG Soundboard.
+    """
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RPG Soundboard")
@@ -32,7 +37,11 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         # maps: uid -> (list_item, widget)
         self._uid_map = {}
 
-        # sound manager
+        # masters: store original items (name, fullpath) for filtering
+        self._trilhas_master = []  # list[tuple[str, str]]
+        self._efeitos_master = []  # list[tuple[str, str]]
+
+        # sound manager (lambda references default_vol_spin later, that's fine)
         self.sound_manager = SoundManager(default_volume_getter=lambda: self.default_vol_spin.value())
 
         # build UI (calls methods that reference default_vol_spin)
@@ -55,6 +64,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             "QListWidget::item { padding: 4px 6px; }"
         )
 
+    # ---------------- UI ----------------
     def _build_ui(self):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -95,30 +105,44 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         lists_layout = QtWidgets.QHBoxLayout()
         layout.addLayout(lists_layout)
 
-        trilhas_group = QtWidgets.QGroupBox("Trilhas (background)")
-        trilhas_layout = QtWidgets.QVBoxLayout(trilhas_group)
+        # Trilhas group with search bar
+        self.trilhas_group = QtWidgets.QGroupBox("Trilhas (background)")
+        trilhas_layout = QtWidgets.QVBoxLayout(self.trilhas_group)
+
+        self.trilhas_search = self._make_search_input("Buscar trilhas (Ctrl+F)...")
+        self.trilhas_search.textChanged.connect(lambda txt: self._apply_filter("trilha", txt))
+        trilhas_layout.addWidget(self.trilhas_search)
+
         self.trilhas_list = QtWidgets.QListWidget()
         self.trilhas_list.setSpacing(4)
         self.trilhas_list.setStyleSheet(self._list_stylesheet())
         self.trilhas_list.itemDoubleClicked.connect(lambda it: self.play_from_item(it, "trilha"))
+        trilhas_layout.addWidget(self.trilhas_list)
+
         trilhas_refresh_btn = QtWidgets.QPushButton("Atualizar lista de Trilhas")
         trilhas_refresh_btn.clicked.connect(lambda: self.refresh_list("trilha"))
-        trilhas_layout.addWidget(self.trilhas_list)
         trilhas_layout.addWidget(trilhas_refresh_btn)
 
-        efeitos_group = QtWidgets.QGroupBox("Efeitos (momentâneos)")
-        efeitos_layout = QtWidgets.QVBoxLayout(efeitos_group)
+        # Efeitos group with search bar
+        self.efeitos_group = QtWidgets.QGroupBox("Efeitos (momentâneos)")
+        efeitos_layout = QtWidgets.QVBoxLayout(self.efeitos_group)
+
+        self.efeitos_search = self._make_search_input("Buscar efeitos (Ctrl+Shift+F)...")
+        self.efeitos_search.textChanged.connect(lambda txt: self._apply_filter("efeito", txt))
+        efeitos_layout.addWidget(self.efeitos_search)
+
         self.efeitos_list = QtWidgets.QListWidget()
         self.efeitos_list.setSpacing(4)
         self.efeitos_list.setStyleSheet(self._list_stylesheet())
         self.efeitos_list.itemDoubleClicked.connect(lambda it: self.play_from_item(it, "efeito"))
+        efeitos_layout.addWidget(self.efeitos_list)
+
         efeitos_refresh_btn = QtWidgets.QPushButton("Atualizar lista de Efeitos")
         efeitos_refresh_btn.clicked.connect(lambda: self.refresh_list("efeito"))
-        efeitos_layout.addWidget(self.efeitos_list)
         efeitos_layout.addWidget(efeitos_refresh_btn)
 
-        lists_layout.addWidget(trilhas_group)
-        lists_layout.addWidget(efeitos_group)
+        lists_layout.addWidget(self.trilhas_group)
+        lists_layout.addWidget(self.efeitos_group)
 
         # Bottom: Tocando agora
         playing_group = QtWidgets.QGroupBox("Tocando agora")
@@ -133,7 +157,32 @@ class SoundboardWindow(QtWidgets.QMainWindow):
 
         layout.addWidget(playing_group)
 
-    # config persistence
+        self.trilhas_search.installEventFilter(self)
+        self.efeitos_search.installEventFilter(self)
+
+    def _make_search_input(self, placeholder: str) -> QtWidgets.QLineEdit:
+        le = QtWidgets.QLineEdit()
+        le.setPlaceholderText(placeholder)
+        le.setClearButtonEnabled(True)
+        le.setMaximumHeight(28)
+        try:
+            action = le.addAction(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_FileDialogContentsView), QtWidgets.QLineEdit.ActionPosition.LeadingPosition)
+            action.setToolTip("Busca")
+        except Exception:
+            pass
+        return le
+
+    def eventFilter(self, obj, event):
+        # pressing Esc in search fields clears them (quick reset)
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if isinstance(obj, QtWidgets.QLineEdit):
+                key = event.key()
+                if key == QtCore.Qt.Key.Key_Escape:
+                    obj.clear()
+                    return True
+        return super().eventFilter(obj, event)
+
+    # ----------------- persistence & file selection -----------------
     def save_settings(self):
         self.config["trilhas_dir"] = self.config.get("trilhas_dir", "")
         self.config["efeitos_dir"] = self.config.get("efeitos_dir", "")
@@ -147,6 +196,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             self.trilhas_dir_label.setText(d)
             save_config(self.config)
             self.refresh_list("trilha")
+            self.trilhas_search.setFocus()
 
     def choose_efeitos_dir(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Selecionar pasta de Efeitos")
@@ -155,26 +205,66 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             self.efeitos_dir_label.setText(d)
             save_config(self.config)
             self.refresh_list("efeito")
+            self.efeitos_search.setFocus()
 
+    # ----------------- list population & filtering -----------------
     def refresh_list(self, list_type: str):
+        """
+        Populate the master list for `list_type` and apply current filter.
+        We keep a master list of (display_name, full_path), so filtering is quick,
+        and we don't repeatedly hit the filesystem while the user types.
+        """
+        master = []
         if list_type == "trilha":
-            w = self.trilhas_list
             base = self.config.get("trilhas_dir") or ""
         else:
-            w = self.efeitos_list
             base = self.config.get("efeitos_dir") or ""
 
-        w.clear()
         if base and os.path.isdir(base):
             files = sorted(os.listdir(base))
             for f in files:
                 full = os.path.join(base, f)
                 if os.path.isfile(full) and is_audio_file(full):
-                    item = QtWidgets.QListWidgetItem(f)
-                    item.setData(QtCore.Qt.ItemDataRole.UserRole, full)
-                    item.setSizeHint(QtCore.QSize(0, 28))
-                    w.addItem(item)
+                    master.append((f, full))
 
+        if list_type == "trilha":
+            self._trilhas_master = master
+            # update group title with count
+            self.trilhas_group.setTitle(f"Trilhas (background) — {len(master)}")
+            # apply current search query
+            self._apply_filter("trilha", self.trilhas_search.text().strip())
+        else:
+            self._efeitos_master = master
+            self.efeitos_group.setTitle(f"Efeitos (momentâneos) — {len(master)}")
+            self._apply_filter("efeito", self.efeitos_search.text().strip())
+
+    def _apply_filter(self, list_type: str, query: str):
+        """Filter the corresponding QListWidget using the master's entries."""
+        q = query.casefold() if query else ""
+        if list_type == "trilha":
+            master = self._trilhas_master
+            widget = self.trilhas_list
+        else:
+            master = self._efeitos_master
+            widget = self.efeitos_list
+
+        widget.clear()
+        count = 0
+        for name, full in master:
+            if not q or q in name.casefold():
+                item = QtWidgets.QListWidgetItem(name)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, full)
+                item.setSizeHint(QtCore.QSize(0, 28))
+                widget.addItem(item)
+                count += 1
+
+        # Update group title with filtered count to give feedback
+        if list_type == "trilha":
+            self.trilhas_group.setTitle(f"Trilhas (background) — {count}")
+        else:
+            self.efeitos_group.setTitle(f"Efeitos (momentâneos) — {count}")
+
+    # ----------------- playback / UI wiring -----------------
     def play_from_item(self, item: QtWidgets.QListWidgetItem, kind: str):
         path = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not path or not os.path.isfile(path):
@@ -199,17 +289,14 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         self._uid_map[uid] = {"list_item": list_item, "widget": widget}
 
     def _on_widget_stop(self, widget):
-        # widget is the PlayerItemWidget instance that invoked stop()
         uid = getattr(widget, "_uid", None)
         if not uid:
-            # fallback: try to find uid in map by identity
             for k, v in self._uid_map.items():
                 if v["widget"] is widget:
                     uid = k
                     break
         if not uid:
             return
-        # remove UI
         entry = self._uid_map.pop(uid, None)
         if entry:
             try:
@@ -217,14 +304,12 @@ class SoundboardWindow(QtWidgets.QMainWindow):
                 self.playing_list_widget.takeItem(row)
             except Exception:
                 pass
-        # stop player resources
         try:
             self.sound_manager.stop(uid)
         except Exception:
             pass
 
     def stop_all(self):
-        # remove UI items
         for uid, entry in list(self._uid_map.items()):
             try:
                 row = self.playing_list_widget.row(entry["list_item"])
@@ -232,13 +317,12 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
         self._uid_map.clear()
-        # stop players
         try:
             self.sound_manager.stop_all()
         except Exception:
             pass
 
-    # keyboard shortcuts
+    # ----------------- keyboard shortcuts -----------------
     def _setup_shortcuts(self):
         sc_enter = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Return), self)
         sc_enter.activated.connect(self._play_selected)
@@ -255,13 +339,24 @@ class SoundboardWindow(QtWidgets.QMainWindow):
         sc_stopall = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+K"), self)
         sc_stopall.activated.connect(self.stop_all)
 
-        sc_trilhas = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self)
-        sc_trilhas.activated.connect(self.choose_trilhas_dir)
+        sc_trilhas_dir = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self)
+        sc_trilhas_dir.activated.connect(self.choose_trilhas_dir)
 
-        sc_efeitos = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+E"), self)
-        sc_efeitos.activated.connect(self.choose_efeitos_dir)
+        sc_efeitos_dir = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+E"), self)
+        sc_efeitos_dir.activated.connect(self.choose_efeitos_dir)
 
-        for sc in (sc_enter, sc_space, sc_del, sc_refresh, sc_stopall, sc_trilhas, sc_efeitos):
+        # UX navigation shortcuts for search focus
+        sc_focus_trilhas_search = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+F"), self)
+        sc_focus_trilhas_search.activated.connect(lambda: self.trilhas_search.setFocus())
+
+        sc_focus_efeitos_search = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Shift+F"), self)
+        sc_focus_efeitos_search.activated.connect(lambda: self.efeitos_search.setFocus())
+
+        for sc in (
+            sc_enter, sc_space, sc_del, sc_refresh, sc_stopall,
+            sc_trilhas_dir, sc_efeitos_dir,
+            sc_focus_trilhas_search, sc_focus_efeitos_search
+        ):
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
 
     def _play_selected(self):
@@ -303,7 +398,6 @@ class SoundboardWindow(QtWidgets.QMainWindow):
                 pass
 
     def _cleanup_finished(self):
-        # ask sound_manager to cleanup; it returns removed uids
         removed = self.sound_manager.cleanup_finished()
         for uid in removed:
             entry = self._uid_map.pop(uid, None)
