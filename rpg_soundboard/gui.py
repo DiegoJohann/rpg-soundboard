@@ -305,7 +305,7 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             if not q or q in nome.casefold():
                 display = nome
                 if caminho in favs:
-                    display = "★ " + display
+                    display = "⭐ " + display
                 item = QtWidgets.QListWidgetItem(display)
                 item.setData(QtCore.Qt.ItemDataRole.UserRole, caminho)
                 item.setSizeHint(QtCore.QSize(0, 28))
@@ -339,20 +339,23 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(caminho))
 
     def _toggle_favorite(self, caminho: str):
-        favs = set(self.config.get("favorites", []))
+        """
+        Alterna favorito. Mantém a ordem dos favoritos (lista),
+        limita a 5 itens e atualiza UI/config.
+        """
+        favs = list(self.config.get("favorites", []))
 
         if caminho in favs:
             favs.remove(caminho)
             self.statusBar().showMessage("Removido dos favoritos", 2500)
         else:
             if len(favs) >= 5:
-                self.statusBar().showMessage("Limite de 5 favoritos atingido.", 3000)
+                self.statusBar().showMessage("Limite de 5 favoritos atingido. Remova um primeiro.", 3500)
                 return
-
-            favs.add(caminho)
+            favs.append(caminho)
             self.statusBar().showMessage("Adicionado aos favoritos", 2500)
 
-        self.config["favorites"] = list(favs)
+        self.config["favorites"] = favs
         save_config(self.config)
 
         self.refresh_list("trilha")
@@ -561,30 +564,41 @@ class SoundboardWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
 
-    # quick panel: mostra até 6 favoritos como botões
+    # quick panel: mostra até 5 favoritos como botões
     def _reload_quick_panel(self):
-        # limpar
+        # remover shortcuts antigos
+        if hasattr(self, "_quick_hotkeys"):
+            for sc in self._quick_hotkeys:
+                sc.setParent(None)
+                sc.deleteLater()
+
+        self._quick_hotkeys = []
+
+        # limpar widgets
         for i in reversed(range(self.quick_layout.count())):
             w = self.quick_layout.itemAt(i).widget()
             if w:
                 w.setParent(None)
+
         favs = list(self.config.get("favorites", []))
 
-        # criar botões + hotkeys
+        self._quick_hotkeys = []
+
+        # mostrar até 5 favoritos com hotkeys Ctrl+1..Ctrl+5
         for i, caminho in enumerate(favs[:5]):
             seq = f"Ctrl+{i + 1}"
 
             shortcut = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
             shortcut.activated.connect(lambda p=caminho: self._play_path_via_hotkey(p))
+            shortcut.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
+
+            self._quick_hotkeys.append(shortcut)
 
             b = QtWidgets.QPushButton(f"{i + 1} - {os.path.basename(caminho)}")
             b.setToolTip(f"{seq} → {caminho}")
-
             b.clicked.connect(lambda _, path=caminho: self._play_path_via_hotkey(path))
-
             self.quick_layout.addWidget(b)
 
-        # se vazio, instrução
         if not favs:
             lab = QtWidgets.QLabel("Marque favoritos (clique direito) para aparecer aqui.")
             self.quick_layout.addWidget(lab)

@@ -36,7 +36,11 @@ class SoundManager:
         if vlc is None:
             self.instancia = None
         else:
-            self.instancia = vlc.Instance()
+            self.instancia = vlc.Instance(
+                "--quiet",
+                "--no-video",
+                "--no-xlib"
+            )
 
     def play_file(self, path: str, tipo: str):
         """
